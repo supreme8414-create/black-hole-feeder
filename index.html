@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>黑洞餵養者</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;900&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  /* 版面：單一深空主題（刻意只做暗色），遊戲畫面置中，吸積盤橘光是唯一的強調色 */
+  :root {
+    --void: #05040b;
+    --panel: #0f0d1c;
+    --line: #2a2540;
+    --text: #e9e6f5;
+    --muted: #9a94b8;
+    --disk: #ff9a3c;
+    --disk-hot: #ffd9a0;
+    --font-body: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    background: var(--void);
+    color: var(--text);
+    font-family: var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 20px 28px;
+    box-sizing: border-box;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+  h1 {
+    margin: 0; font-weight: 900; font-size: clamp(26px, 4vw, 40px); letter-spacing: 0.06em;
+    text-wrap: balance;
+    text-shadow: 0 0 18px rgba(255, 154, 60, 0.35);
+  }
+  h1 .ring {
+    display: inline-block; width: 0.62em; height: 0.62em; margin-right: 0.28em; vertical-align: 0.02em;
+    border-radius: 50%; background: var(--void);
+    box-shadow: 0 0 0 0.07em var(--disk), 0 0 0.5em 0.12em rgba(255, 154, 60, 0.45);
+  }
+  .tag { color: var(--muted); font-size: 15px; min-width: 0; }
+  .ver { font-family: var(--font-mono); font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+
+  .stage {
+    position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 9;
+    background: #000; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  }
+  #unity-canvas {
+    width: 100%; height: 100%; display: block; background: #05040b; outline: none;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; /* 手指操作時不要捲動、縮放、跳出選單 */
+  }
+
+  .stage:fullscreen { width: 100vw; height: 100vh; max-width: none; aspect-ratio: auto; border: 0; border-radius: 0; background: #000; }
+  .stage:fullscreen #unity-canvas { object-fit: contain; } /* 非 16:9 的螢幕補黑邊，不拉伸 */
+
+  /* 手機／平板：直立全螢幕，只留遊戲畫面；橫放時蓋一層「請轉成直立」 */
+  .rotate { display: none; }
+  @media (pointer: coarse) {
+    body { padding: 0; overflow: hidden; overscroll-behavior: none; }
+    .wrap { display: block; max-width: none; }
+    header, .under, .notes { display: none !important; }
+    .stage {
+      position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none;
+      aspect-ratio: auto; border: 0; border-radius: 0; background: #000;
+    }
+    #unity-canvas { image-rendering: pixelated; }
+  }
+  @media (pointer: coarse) and (orientation: landscape) {
+    .rotate {
+      position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; align-content: center; gap: 14px;
+      background: var(--void); color: var(--disk-hot); font-size: 18px; text-align: center; padding: 24px;
+    }
+    .rotate .phone {
+      width: 46px; height: 78px; border: 3px solid var(--disk); border-radius: 8px;
+      animation: tilt 2.2s ease-in-out infinite;
+    }
+  }
+  @keyframes tilt { 0%, 30% { transform: rotate(-90deg); } 60%, 100% { transform: rotate(0deg); } }
+  @media (prefers-reduced-motion: reduce) { .rotate .phone { animation: none; } }
+
+  .loading {
+    position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 18px;
+    background: radial-gradient(circle at 50% 50%, #120d22 0%, var(--void) 70%);
+  }
+  .loading .hole {
+    width: 84px; height: 84px; border-radius: 50%; background: #000;
+    box-shadow: 0 0 0 3px var(--disk), 0 0 40px 10px rgba(255, 154, 60, 0.35);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .bar { width: min(320px, 70%); height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--disk), var(--disk-hot)); transition: width 0.2s; }
+  .loading p { margin: 0; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .loading.error p { color: #ff8a80; max-width: 36em; text-align: center; line-height: 1.6; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--disk-hot), 0 0 56px 16px rgba(255, 154, 60, 0.5); } }
+  @media (prefers-reduced-motion: reduce) { .loading .hole { animation: none; } }
+
+  .under { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 20px; }
+  .keys { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 14px; }
+  .keys li { display: flex; align-items: center; gap: 7px; }
+  kbd {
+    font-family: var(--font-mono); font-size: 12px; color: var(--text);
+    border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 2px 7px; background: var(--panel);
+  }
+  button {
+    font: 500 14px var(--font-body); color: var(--void); background: var(--disk);
+    border: 0; border-radius: 4px; padding: 8px 16px; cursor: pointer;
+  }
+  button:hover { background: var(--disk-hot); }
+  button:focus-visible { outline: 2px solid var(--disk-hot); outline-offset: 2px; }
+
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+  .note h2 { margin: 0 0 4px; font-size: 14px; font-weight: 500; color: var(--disk-hot); letter-spacing: 0.04em; }
+  .note p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.65; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1><span class="ring" aria-hidden="true"></span>黑洞餵養者</h1>
+    <span class="tag">從一顆碎石開始，把整片星區吞進吸積盤。</span>
+    <span class="ver">v0.2</span>
+  </header>
+
+  <div class="rotate" role="note"><div class="phone" aria-hidden="true"></div>請把手機轉成直立<br>單手就能玩</div>
+
+  <div class="stage">
+    <canvas id="unity-canvas" width="1280" height="720" tabindex="-1" aria-label="遊戲畫面"></canvas>
+    <div class="loading" id="loading">
+      <div class="hole" aria-hidden="true"></div>
+      <div class="bar"><i id="bar"></i></div>
+      <p id="status">正在載入星區… 0%</p>
+    </div>
+  </div>
+
+  <div class="under">
+    <ul class="keys touch-only">
+      <li><kbd>按住畫面</kbd>移動黑洞</li>
+      <li><kbd>收割</kbd>吞下內環</li>
+      <li><kbd>甩射</kbd>自動瞄準大天體</li>
+      <li><kbd>衝刺</kbd>短暫加速、強化吸力</li>
+    </ul>
+    <ul class="keys desk-only">
+      <li><kbd>滑鼠</kbd>移動黑洞</li>
+      <li><kbd>左鍵</kbd>收割內環</li>
+      <li><kbd>右鍵</kbd>甩射外環</li>
+      <li><kbd>空白鍵</kbd>視界衝刺</li>
+      <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>選突變　<kbd>F</kbd>重抽</li>
+    </ul>
+    <button id="fs" type="button">全螢幕</button>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h2>怎麼玩</h2>
+      <p>天體被吸進吸積盤後會繞著轉，繞越久越值錢。吃太少會蒸發，囤太多會過熱，在兩者之間拿捏時機收割。</p>
+    </div>
+    <div class="note">
+      <h2>電腦和手機都能玩</h2>
+      <p>電腦用滑鼠和鍵盤；手機直立全螢幕、單手操作：下方左邊拖曳移動、點一下收割，右邊三顆按鈕收割、甩射、衝刺。</p>
+    </div>
+    <div class="note">
+      <h2>進度存在哪</h2>
+      <p>升級和圖鑑存在你這個瀏覽器裡。換電腦、換瀏覽器或清除網站資料，進度就會重新開始。</p>
+    </div>
+  </div>
+</div>
+
+<script src="Build/loader.js"></script>
+<script>
+  (function () {
+    var canvas = document.getElementById("unity-canvas");
+    var loading = document.getElementById("loading");
+    var bar = document.getElementById("bar");
+    var status = document.getElementById("status");
+    var instance = null;
+
+    canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); }); // 右鍵是甩射，不要跳出選單
+
+    // 手機：直立全螢幕。內部解析度固定 480 寬、高度依螢幕比例，
+    // 像素風本來就不需要高解析度，小螢幕上文字也夠大、又省電
+    var touchDevice = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    function fitCanvas() {
+      if (!touchDevice) return;
+      var w = window.innerWidth, h = window.innerHeight;
+      if (w > h) return; // 橫放時蓋著提示，不改尺寸
+      var iw = 480, ih = Math.round(480 * h / w);
+      if (canvas.width !== iw || canvas.height !== ih) { canvas.width = iw; canvas.height = ih; }
+    }
+    fitCanvas();
+    window.addEventListener("resize", fitCanvas);
+    window.addEventListener("orientationchange", function () { setTimeout(fitCanvas, 300); });
+    canvas.addEventListener("pointerdown", function () { canvas.focus(); });
+
+    // Android：第一次觸碰時自動進全螢幕並鎖直立（瀏覽器規定要由使用者操作觸發；iPhone 不支援，略過）
+    var triedFs = false;
+    canvas.addEventListener("touchend", function () {
+      if (triedFs || !touchDevice) return;
+      triedFs = true;
+      var el = document.documentElement;
+      var req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (!req) return;
+      try {
+        var p = req.call(el);
+        if (p && p.then) p.then(function () {
+          if (screen.orientation && screen.orientation.lock) screen.orientation.lock("portrait").catch(function () {});
+          setTimeout(fitCanvas, 300);
+        }).catch(function () {});
+      } catch (e) { /* 不支援就維持原樣 */ }
+    });
+
+    if (typeof createUnityInstance !== "function") {
+      loading.classList.add("error");
+      status.textContent = "遊戲檔案載入失敗。請重新整理頁面再試一次。";
+      return;
+    }
+
+    createUnityInstance(canvas, {
+      // 檔案內容是 gzip，loader 會依檔頭自己解壓，所以副檔名只是為了讓靜態網站正確提供
+      dataUrl: "Build/data.gz.wasm",
+      frameworkUrl: "Build/framework.js",
+      codeUrl: "Build/code.gz.wasm",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "BlackHoleFeeder",
+      productName: "黑洞餵養者",
+      productVersion: "0.2",
+      // 內部固定 1280×720，由 CSS 縮放顯示：介面排版在任何視窗大小都一致
+      matchWebGLToCanvasSize: false
+    }, function (p) {
+      var pct = Math.round(p * 100);
+      bar.style.width = pct + "%";
+      status.textContent = "正在載入星區… " + pct + "%";
+    }).then(function (u) {
+      instance = u;
+      loading.hidden = true;
+      canvas.focus();
+    }).catch(function (err) {
+      loading.classList.add("error");
+      status.textContent = "這個瀏覽器無法啟動遊戲：" + err + "。請改用最新版的 Chrome、Edge 或 Firefox。";
+    });
+
+    document.getElementById("fs").addEventListener("click", function () {
+      var stage = canvas.parentElement;
+      var req = stage.requestFullscreen || stage.webkitRequestFullscreen;
+      if (!req) return; // iPhone Safari 不支援，橫放即可
+      try {
+        var p = req.call(stage);
+        // Android：進全螢幕後順便鎖定橫向
+        if (p && p.then) p.then(function () {
+          if (screen.orientation && screen.orientation.lock) screen.orientation.lock(touchDevice ? "portrait" : "landscape").catch(function () {});
+        }).catch(function () {});
+      } catch (e) { /* 部分環境不支援全螢幕，忽略 */ }
+    });
+  })();
+</script>
+
+</html>
